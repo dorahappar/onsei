@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>位置情報と音声メモの記録</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      table-layout: fixed;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th:nth-child(1), td:nth-child(1) { width: 40px; }
+    th:nth-child(2), td:nth-child(2) { width: 140px; }
+    th:nth-child(3), td:nth-child(3),
+    th:nth-child(4), td:nth-child(4) { width: 100px; }
+    th:nth-child(5), td:nth-child(5) { width: auto; }
+
+    .button {
+      padding: 10px 20px;
+      margin-right: 10px;
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+    .button:hover {
+      background-color: #45a049;
+    }
+    textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 60px;
+      padding: 5px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>位置情報と音声メモの記録</h1>
+
+<button class="button" id="getLocationButton">位置情報を取得</button>
+<button class="button" id="downloadButton">エクセルに出力</button>
+
+<table id="dataTable">
+  <thead>
+    <tr>
+      <th>No</th>
+      <th>日時</th>
+      <th>緯度</th>
+      <th>経度</th>
+      <th>音声メモ</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.4/xlsx.full.min.js"></script>
+<script>
+  let locationData = [];
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'ja-JP';
+
+  document.getElementById("getLocationButton").addEventListener("click", () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(position => {
+        const latitude = position.coords.latitude.toFixed(5);
+        const longitude = position.coords.longitude.toFixed(5);
+        const dateTime = new Date().toLocaleString();
+
+        locationData.push({
+          dateTime,
+          latitude,
+          longitude,
+          audioMemo: ""
+        });
+
+        updateTable(() => {
+          // 最新の要素（配列の最後）に対して音声認識開始
+          startSpeechRecognition(locationData.length - 1);
+        });
+
+      }, error => {
+        alert("位置情報の取得に失敗しました: " + error.message);
+      });
+    } else {
+      alert("このブラウザは位置情報に対応していません。");
+    }
+  });
+
+  function updateTable(callback) {
+    const tableBody = document.querySelector("#dataTable tbody");
+    tableBody.innerHTML = "";
+
+    // 最新が上に来るように逆順ループ
+    for (let i = locationData.length -1; i >= 0; i--) {
+      const data = locationData[i];
+      // Noは添字 + 1 の順番で（iは下から上なので逆順）
+      const no = i + 1;
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${no}</td>
+        <td>${data.dateTime}</td>
+        <td>${data.latitude}</td>
+        <td>${data.longitude}</td>
+        <td>
+          <textarea id="memo-input-${i}" oninput="updateAudioMemo(${i}, this.value)">${data.audioMemo}</textarea>
+        </td>
+      `;
+      tableBody.appendChild(row);
+    }
+
+    if (callback) callback();
+  }
+
+  function updateAudioMemo(index, value) {
+    locationData[index].audioMemo = value;
+  }
+
+  document.getElementById("downloadButton").addEventListener("click", () => {
+    // エクセルは昇順で出したい場合はそのまま locationData を map すればOK
+    const exportData = locationData.map((item, index) => ({
+      No: index + 1,
+      日時: item.dateTime,
+      緯度: item.latitude,
+      経度: item.longitude,
+      音声メモ: item.audioMemo
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "位置情報と音声メモ");
+    XLSX.writeFile(wb, "location_data.xlsx");
+  });
+
+  function startSpeechRecognition(index) {
+    recognition.start();
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      locationData[index].audioMemo = transcript;
+
+      const input = document.getElementById(`memo-input-${index}`);
+      if (input) input.value = transcript;
+    };
+
+    recognition.onspeechend = () => {
+      recognition.stop();
+    };
+
+    recognition.onerror = (event) => {
+      console.error("音声認識エラー:", event.error);
+      alert("音声認識エラー: " + event.error);
+    };
+  }
+</script>
+
+</body>
+</html>
